@@ -1,0 +1,13 @@
+Publish this GitHub repository, MohamedAlEoenaan/iResearch_v0.1 (updated main branch), as a temporary working V0.1 review website on Replit.
+
+Read REPLIT_HANDOFF.md first and follow it. The repository now contains the actual built application; no ZIP is needed. Preserve the existing app rather than rebuilding a static demo. Keep the release V0.1 and the specified business workflow.
+
+Use Node.js 24, the existing Next.js/TypeScript app, PostgreSQL and Prisma migrations. Adapt the included starter .replit configuration to the current Replit environment. Provision a separate review PostgreSQL database and configure DATABASE_URL, a fresh SESSION_SECRET and the exact deployed HTTPS APP_ORIGIN securely. Preserve authentication, tenant isolation and origin checks.
+
+Install with npm ci --include=dev, generate Prisma, apply all migrations, import catalog/website.en.json and build. Use the guarded one-time npm run review:bootstrap command with securely supplied reviewer credentials to provision a private review administrator, then disable its enable flag and remove the bootstrap password from runtime secrets. Do not use or bypass the local development seed's production guard. Never print passwords or tokens.
+
+Keep English, the included official iResearch logo/colors, the 24 official catalog entries, exact website prices and VAT-included labeling. Email, payments, private file storage and malware scanning must stay disabled. Do not fake their success or auto-verify public registrations. The complete MVP is not finished; preserve its implementation plan and limitations.
+
+Publishing startup is npm run db:migrate && npm run start, listening on 0.0.0.0 and Replit's assigned PORT. Initialize the actual deployment database, not only a separate workspace database. Ask me before incurring charges or selecting a paid plan, and ask about genuine missing business decisions. Do not ask me to send secrets in chat.
+
+Publish it, then verify its external HTTPS health endpoint, catalog, private administrator login, Secure/HttpOnly cookies, mobile layout and database persistence across a restart. Return the actual verified public review URL and explain how I can access the private reviewer login without exposing its password in chat. Do not call a development webview or an untested URL a successful deployment.

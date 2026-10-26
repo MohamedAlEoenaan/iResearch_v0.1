@@ -1,0 +1,419 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AccountType {
+  INDIVIDUAL
+  ORGANIZATION
+  INTERNAL
+}
+
+enum RegistrationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum IntakeStatus {
+  DRAFT
+  PENDING_APPROVAL
+  DRAFT_FOR_REVISION
+  APPROVED_WAITING_AUTHORIZATION
+  SUBMITTED
+  CANCELLED
+}
+
+enum OperationalStatus {
+  SUBMITTED
+  READY_FOR_ASSIGNMENT
+  IN_PROGRESS
+  QA_REVIEW
+  READY_FOR_DELIVERY
+  CLIENT_REVIEW
+  COMPLETED
+  PENDING_CLIENT_INFORMATION
+  REVISION_REQUIRED
+  SCOPE_REVIEW
+  CANCELLED
+}
+
+model User {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  email                  String                   @unique
+  name                   String
+  passwordHash           String
+  accountType            AccountType
+  organizationId         String?                  @db.Uuid
+  organization           Organization?            @relation(fields: [organizationId], references: [id])
+  active                 Boolean                  @default(true)
+  verifiedAt             DateTime?
+  roles                  UserRole[]
+  sessions               Session[]
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  createdRequests        Request[]                @relation("RequestCreator")
+  ownedRequests          Request[]                @relation("RequestOwner")
+  managedRequests        Request[]                @relation("RequestAM")
+  assignedRequests       Request[]                @relation("RequestResearcher")
+  dedicatedOrganizations Organization[]           @relation("OrganizationAM")
+  authTokens             AuthToken[]
+  sentInvitations        OrganizationInvitation[]
+  uploadedDocuments      Document[]
+  qaReviews              QAReview[]
+  approvals              OrganizationApproval[]
+  accessGrants           RequestAccessGrant[]
+  requestLocks           RequestLock[]
+  notifications          Notification[]
+  auditEvents            AuditEvent[]
+
+  @@index([organizationId])
+}
+
+model Role {
+  id          String           @id
+  label       String
+  permissions RolePermission[]
+  users       UserRole[]
+}
+
+model Permission {
+  id    String           @id
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  tokenHash String   @unique
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model AuthToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  tokenHash  String    @unique
+  userId     String    @db.Uuid
+  purpose    String
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "AuthToken_user_fk")
+}
+
+model RateLimit {
+  key      String   @id
+  count    Int
+  resetsAt DateTime
+}
+
+model Organization {
+  id                            String                   @id @default(uuid()) @db.Uuid
+  name                          String
+  contactEmail                  String
+  registrationStatus            RegistrationStatus       @default(PENDING)
+  workspaceActive               Boolean                  @default(false)
+  serviceAuthorized             Boolean                  @default(false)
+  serviceAuthorizationChangedAt DateTime?
+  rejectionReason               String?
+  users                         User[]
+  invitations                   OrganizationInvitation[]
+  requests                      Request[]
+  createdAt                     DateTime                 @default(now())
+  updatedAt                     DateTime                 @updatedAt
+  dedicatedAmId                 String?                  @db.Uuid
+  dedicatedAm                   User?                    @relation("OrganizationAM", fields: [dedicatedAmId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model OrganizationInvitation {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  email          String
+  tokenHash      String       @unique
+  invitedBy      String       @db.Uuid
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  inviter        User         @relation(fields: [invitedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Invitation_inviter_fk")
+
+  @@index([organizationId, email])
+}
+
+model Service {
+  id               String    @id @default(uuid()) @db.Uuid
+  sourceId         String    @unique
+  category         String
+  name             String
+  description      String
+  amount           Int
+  currency         String    @default("SAR")
+  active           Boolean   @default(true)
+  kind             String    @default("SERVICE")
+  taxHandling      String    @default("VAT_INCLUDED")
+  sourceVerifiedAt DateTime?
+  sourceUrl        String
+  requests         Request[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model Request {
+  id                           String                      @id @default(uuid()) @db.Uuid
+  title                        String
+  accountType                  AccountType
+  organizationId               String?                     @db.Uuid
+  organization                 Organization?               @relation(fields: [organizationId], references: [id])
+  createdById                  String                      @db.Uuid
+  currentOwnerId               String                      @db.Uuid
+  serviceId                    String?                     @db.Uuid
+  service                      Service?                    @relation(fields: [serviceId], references: [id])
+  intakeStatus                 IntakeStatus                @default(DRAFT)
+  operationalStatus            OperationalStatus?
+  resumeStatus                 OperationalStatus?
+  version                      Int                         @default(1)
+  requirements                 String
+  lockedRequirementsSnapshotId String?                     @db.Uuid
+  requestAmId                  String?                     @db.Uuid
+  researcherId                 String?                     @db.Uuid
+  approvals                    OrganizationApproval[]
+  snapshots                    RequestRequirementVersion[] @relation("RequirementHistory")
+  grants                       RequestAccessGrant[]
+  payments                     PaymentTransaction[]
+  messages                     ConversationMessage[]
+  documents                    Document[]
+  reviews                      QAReview[]
+  revisions                    ClientRevision[]
+  cancellations                CancellationRequest[]
+  lock                         RequestLock?
+  assignments                  RequestAssignmentHistory[]
+  feedback                     String?
+  createdAt                    DateTime                    @default(now())
+  updatedAt                    DateTime                    @updatedAt
+  creator                      User                        @relation("RequestCreator", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Request_creator_fk")
+  owner                        User                        @relation("RequestOwner", fields: [currentOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Request_owner_fk")
+  researcher                   User?                       @relation("RequestResearcher", fields: [researcherId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Request_researcher_fk")
+  accountManager               User?                       @relation("RequestAM", fields: [requestAmId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Request_am_fk")
+  lockedSnapshot               RequestRequirementVersion?  @relation("LockedSnapshot", fields: [lockedRequirementsSnapshotId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Request_snapshot_fk")
+
+  @@index([organizationId, intakeStatus])
+  @@index([currentOwnerId, createdAt])
+  @@index([operationalStatus, researcherId])
+}
+
+model RequestRequirementVersion {
+  id                     String    @id @default(uuid()) @db.Uuid
+  requestId              String    @db.Uuid
+  request                Request   @relation("RequirementHistory", fields: [requestId], references: [id])
+  version                Int
+  payload                Json
+  createdById            String    @db.Uuid
+  immutableAfterApproval Boolean   @default(true)
+  createdAt              DateTime  @default(now())
+  lockedByRequests       Request[] @relation("LockedSnapshot")
+
+  @@unique([requestId, version])
+}
+
+model OrganizationApproval {
+  id          String    @id @default(uuid()) @db.Uuid
+  requestId   String    @db.Uuid
+  request     Request   @relation(fields: [requestId], references: [id])
+  attempt     Int
+  decision    String
+  approverId  String?   @db.Uuid
+  reason      String?
+  submittedAt DateTime  @default(now())
+  decidedAt   DateTime?
+  approver    User?     @relation(fields: [approverId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Approval_user_fk")
+
+  @@unique([requestId, attempt])
+}
+
+model RequestAccessGrant {
+  id        String    @id @default(uuid()) @db.Uuid
+  requestId String    @db.Uuid
+  request   Request   @relation(fields: [requestId], references: [id])
+  userId    String    @db.Uuid
+  grantedBy String    @db.Uuid
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  member    User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Grant_user_fk")
+
+  @@index([requestId, userId])
+}
+
+model PaymentTransaction {
+  id          String    @id @default(uuid()) @db.Uuid
+  requestId   String    @db.Uuid
+  request     Request   @relation(fields: [requestId], references: [id])
+  provider    String
+  providerRef String?   @unique
+  eventId     String?   @unique
+  amount      Int
+  currency    String
+  status      String
+  verifiedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model RequestAssignmentHistory {
+  id             String   @id @default(uuid()) @db.Uuid
+  requestId      String   @db.Uuid
+  request        Request  @relation(fields: [requestId], references: [id])
+  assignmentType String
+  oldUserId      String?  @db.Uuid
+  newUserId      String   @db.Uuid
+  actorId        String   @db.Uuid
+  createdAt      DateTime @default(now())
+}
+
+model ConversationMessage {
+  id             String    @id @default(uuid()) @db.Uuid
+  requestId      String    @db.Uuid
+  request        Request   @relation(fields: [requestId], references: [id])
+  authorId       String    @db.Uuid
+  audience       String
+  type           String
+  text           String
+  actionRequired Boolean   @default(false)
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+model Document {
+  id         String     @id @default(uuid()) @db.Uuid
+  requestId  String     @db.Uuid
+  request    Request    @relation(fields: [requestId], references: [id])
+  uploadedBy String     @db.Uuid
+  objectKey  String     @unique
+  fileName   String
+  mime       String
+  size       Int
+  kind       String
+  visibility String
+  checksum   String
+  version    Int
+  scanStatus String     @default("PENDING")
+  createdAt  DateTime   @default(now())
+  uploader   User       @relation(fields: [uploadedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Document_uploader_fk")
+  qaReviews  QAReview[]
+
+  @@unique([requestId, kind, version])
+}
+
+model QAReview {
+  id                    String   @id @default(uuid()) @db.Uuid
+  requestId             String   @db.Uuid
+  request               Request  @relation(fields: [requestId], references: [id])
+  deliverableDocumentId String   @db.Uuid
+  reviewerId            String   @db.Uuid
+  decision              String
+  comments              String
+  createdAt             DateTime @default(now())
+  reviewer              User     @relation(fields: [reviewerId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "QA_reviewer_fk")
+  deliverable           Document @relation(fields: [deliverableDocumentId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "QA_document_fk")
+}
+
+model ClientRevision {
+  id            String   @id @default(uuid()) @db.Uuid
+  requestId     String   @db.Uuid
+  request       Request  @relation(fields: [requestId], references: [id])
+  ownerId       String   @db.Uuid
+  comments      String
+  scopeDecision String?
+  reviewedBy    String?  @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CancellationRequest {
+  id          String   @id @default(uuid()) @db.Uuid
+  requestId   String   @db.Uuid
+  request     Request  @relation(fields: [requestId], references: [id])
+  requestedBy String   @db.Uuid
+  reason      String
+  decision    String   @default("PENDING")
+  decidedBy   String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RequestLock {
+  requestId  String   @id @db.Uuid
+  request    Request  @relation(fields: [requestId], references: [id])
+  holderAmId String   @db.Uuid
+  leaseToken String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  holder     User     @relation(fields: [holderAmId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Lock_holder_fk")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  title     String
+  href      String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Notification_user_fk")
+
+  @@index([userId, createdAt])
+}
+
+model NotificationOutbox {
+  id        String   @id @default(uuid()) @db.Uuid
+  recipient String
+  kind      String
+  payload   Json
+  status    String   @default("BLOCKED")
+  attempts  Int      @default(0)
+  lastError String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  actorId        String?  @db.Uuid
+  organizationId String?  @db.Uuid
+  entityId       String
+  action         String
+  metadata       Json
+  createdAt      DateTime @default(now())
+  actor          User?    @relation(fields: [actorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "Audit_actor_fk")
+
+  @@index([entityId, createdAt])
+  @@index([organizationId, createdAt])
+}

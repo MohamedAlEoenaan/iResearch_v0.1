@@ -1,0 +1,38 @@
+name: Validate V0.1
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: iresearch
+          POSTGRES_PASSWORD: ci-only-local-password
+          POSTGRES_DB: iresearch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U iresearch -d iresearch'
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://iresearch:ci-only-local-password@localhost:5432/iresearch?schema=public
+      APP_ORIGIN: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: npm }
+      - run: npm ci
+      - run: npm run env:init
+      - run: npm run db:generate && npm run db:validate && npm run db:migrate && npm run db:status && npm run db:drift
+      - run: npm run db:seed && npm run catalog:import -- catalog/website.en.json
+      - run: npm run lint && npm run typecheck && npm test
+      - name: Prepare isolated integration database
+        run: |
+          node --input-type=module -e 'import pg from "pg"; const c=new pg.Client({connectionString:process.env.DATABASE_URL}); await c.connect(); await c.query("CREATE DATABASE iresearch_test"); await c.end();'
+          DATABASE_URL=postgresql://iresearch:ci-only-local-password@localhost:5432/iresearch_test?schema=public npm run db:migrate
+          printf 'DATABASE_URL=postgresql://iresearch:ci-only-local-password@localhost:5432/iresearch_test?schema=public\n' > .env.test
+      - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run test:e2e

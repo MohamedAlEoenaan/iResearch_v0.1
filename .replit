@@ -1,0 +1,7 @@
+# Starter .replit configuration. Replit Agent must select a supported Node.js 24
+# environment and confirm current publishing settings before deployment.
+run = "npm run dev"
+
+[deployment]
+build = ["sh", "-c", "npm ci --include=dev && npm run db:generate && npm run build"]
+run = ["sh", "-c", "npm run db:migrate && npm run start"]
